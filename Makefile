@@ -11,22 +11,27 @@ MBR_SIZE_SC := $(shell expr $(FAT32_SIZE_SC) + $(FAT32_OFFSET_SC))
 MBR_SIZE_BT := $(shell expr $(MBR_SIZE_SC) \* $(SECTOR_SIZE_BT))
 
 BEGIN="\033[00;32mBuilding "
+BEGIN_PHONY="\033[00;32mTarget "
 END="\n\033[0m"
 
 # End targets
 all: img/mbr.img
+	@printf $(BEGIN_PHONY)$@$(END)
 
 .PHONY: run
 run: img/mbr.img
+	@printf $(BEGIN_PHONY)$@$(END)
 	qemu-system-x86_64 -drive file=img/mbr.img,index=0,media=disk,format=raw
 
 .PHONY: debug
-debug: img/mbr.img obj/moondcr0.elf
+debug: img/mbr.img obj/moondcr0.o
+	@printf $(BEGIN_PHONY)$@$(END)
 	qemu-system-x86_64 -drive file=img/mbr.img,index=0,media=disk,format=raw -S -s &
-	gdb -ex "target remote :1234" -ex "symbol-file obj/moondcr0.elf" -ex "break *0x7c00" -ex "continue"
+	gdb -ex "target remote :1234" --command=src/break.gdb -ex "symbol-file obj/moondcr0.o" -ex "break *0x7c00" -ex "continue"
 
 .PHONY: clean
 clean:
+	@printf $(BEGIN_PHONY)$@$(END)
 	rm -rf bin
 	rm -rf gen
 	rm -rf img
@@ -70,15 +75,15 @@ bin/%.bin: src/%.asm
 	mkdir -p bin
 	nasm src/$*.asm -f bin -o bin/$*.bin
 
-gen/%.elf.asm: src/%.asm
+gen/%.asm: src/%.asm
 	@printf $(BEGIN)$@$(END)
 	mkdir -p gen
-	cat src/$*.asm | grep -v '\[org 0x0000\]' > gen/$*.elf.asm
+	cat src/$*.asm | sed 's/\[org 0x0000\]//' > gen/$*.asm
 
-obj/%.elf: gen/%.elf.asm
+obj/%.o: gen/%.asm
 	@printf $(BEGIN)$@$(END)
 	mkdir -p obj
-	nasm gen/$*.elf.asm -f elf -g -F dwarf -o obj/$*.elf
+	nasm gen/$*.asm -f elf -g -F dwarf -o obj/$*.o
 
 # Special assembly for moondcr0
 bin/moondcr0.bin: src/moondcr0.asm
