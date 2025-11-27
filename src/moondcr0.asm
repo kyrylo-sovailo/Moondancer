@@ -5,7 +5,7 @@
 ; On memory organization:
 ; All segments are set to 0x07C0: CS = DS = ES = SS = 0x07C0
 ; This gives me 0x10000 = 65536 bytes of space
-; Memory is linear and accessible through offset 0 to 0x10000
+; Memory is linear and accessible through offset 0 to 0x10000 (0x07C0 to 0x107C0 physical)
 ; From now on, addresses refer to this offset
 ; 0x0000 - 0x01FF - code, loaded by BIOS
 ; 0x0200 - 0x03FF - first disk sector
