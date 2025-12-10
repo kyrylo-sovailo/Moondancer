@@ -100,17 +100,18 @@ read_file_loop:
    xor cl, cl
    mov bx, 0x0FFF
    and dx, bx
-   mov [bp+BP_CLUSTER_LOW], ax; TODO: can be put on stack
-   mov [bp+BP_CLUSTER_HIGH], dx
+   push dx ;stack 1
+   push ax ;stack 2
    cmp dx, bx
    jb read_file_loop_bypass_low_check
       cmp ax, 0xFFF7
    read_file_loop_bypass_low_check:
    cmc                        ; CF = !CF = !below
    adc cl, 0                  ; ZF = !CF = below, CF = 0
+   push ax ;stack 3
    mov al, 'C'
    call print_success_failure
-   mov ax, [bp+BP_CLUSTER_LOW]
+   pop ax ;stack 3
    
    ; dx:ax = file_ct-2
    sub ax, 2
@@ -119,10 +120,10 @@ read_file_loop:
    ; dx:ax = (file_ct-2) * cluster_size_lsc
    xor cx, cx
    mov cl, [BPB_BASE+13]      ; 13 = cluster size in logical sectors
-   push cx
+   push cx ;stack 3
    call multiply
-   push dx
-   push ax
+   push dx ;stack 4
+   push ax ;stack 5
 
    ; dx:ax = ex_fat_size_lsc * fat_number
    mov si, BPB_BASE+36
@@ -133,8 +134,8 @@ read_file_loop:
    call multiply
 
    ; dx:ax = ex_fat_size_lsc * fat_number + (file_ct - 2) * cluster_size_lsc
-   pop bx
-   pop cx
+   pop bx ;stack 5
+   pop cx ;stack 4
    add ax, bx
    adc dx, cx
 
@@ -144,7 +145,7 @@ read_file_loop:
    mov [bp+BP_SECTOR_HIGH], dx
 
    ; Loop 2: Iterate over physical sectors in cluster to read (doing it here because cx is set by add_multiply_add)
-   pop ax
+   pop ax ;stack 3
    mul cl                     ; cx is left over add_multiply_add, and both numbers are less then 256
    mov [bp+BP_COUNTER], ax
    read_file_segment_loop:
@@ -182,8 +183,8 @@ read_file_loop:
    ; moondcr1.bin not found and ran out of physical sectors in cluster, go to next cluster
    ; di:si = (file_ct * sizeof(uint32_t)) / 512, bx = (file_ct * sizeof(uint32_t)) % 512
    ; 0000DDDD DDDDDDDD : AAAAAAAA AAAAAAAA -> 00000000 000DDDDD : DDDDDDDA AAAAAAAA, 0000000A AAAAAA00
-   mov si, [bp+BP_CLUSTER_LOW]
-   mov di, [bp+BP_CLUSTER_HIGH]
+   pop si ;stack 2
+   pop di ;stack 1
    mov bx, si
    shl bx, 1
    xor bh, bh
@@ -193,7 +194,7 @@ read_file_loop:
       shr di, 1
       rcr si, 1
       loop read_file_loop_advance_cluster_loop
-   push bx
+   push bx ;stack 1
    
    ; dx:ax = begin_lba_sc + logical_sector_size_sc * (reserved_size_lsc + 0)
    xor dx, dx
@@ -210,7 +211,7 @@ read_file_loop:
    call read_sectors
 
    ; dx:ax = file_ct
-   pop bx
+   pop bx ;stack 1
    add bx, FILE_BASE
    mov ax, [bx]
    mov dx, [bx+2]
@@ -219,6 +220,8 @@ read_file_loop:
 ; moondcr1.bin found, go to next cluster
 ; This piece of code does not belong to any indentation level, it is on its own
 read_file_list_loop_success:
+pop ax ;stack 2
+pop dx ;stack 1
 not byte [bp]
 mov ax, [si-12+26]      ; 26 = address of file cluster, low (minus 12 because si = dx + 12 if repe cmpsb succeeds)
 mov dx, [si-12+20]      ; 20 = address of file cluster, high (minus 12 because si = dx + 12 if repe cmpsb succeeds)
@@ -287,11 +290,11 @@ add_multiply_add:
 ; multiply(uint16_t high, uint16_t low, uint16_t count) -> uint16_t high, uint16_t low
 ; multiply(dx, ax, cx) -> dx, ax
 multiply:
-   push ax
+   push ax ;stack 1
    mov ax, dx
    mul cx            ; Multiply original dx by cx
    mov bx, ax
-   pop ax
+   pop ax ;stack 1
    mul cx            ; Multiply ax by cx
    add dx, bx
    ret
@@ -305,14 +308,14 @@ multiply:
 ; print_success_failure(uint8_t message, bool success, bool continue_on_failure)
 ; print_success_failure(al, zf, cf)
 print_success_failure:
-   pushf
+   pushf ;stack 1
    jz print_success_failure_success
       add al, 0x20
    print_success_failure_success:
    mov ah, 0x0E
    xor bx, bx
    int 0x10
-   popf
+   popf ;stack 1
    ja infinite_loop  ; if ZF == 0 and CF == 0 (!success && !continue_on_failure)
    ret
 

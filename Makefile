@@ -94,13 +94,15 @@ gen/moondcr0.bin.lst: src/moondcr0.asm src/moondcr0.inc
 	mkdir -p bin
 	mkdir -p gen
 	nasm src/moondcr0.asm -f bin -o bin/moondcr0.bin -l gen/moondcr0.lst
-	grep 'moondcr0_end:' gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2 | { read h; printf '%d\n' "0x$$h"; }
+	grep "moondcr0_end:" gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2 | { read h; printf '%d\n' "0x$$h"; }
 	touch $@
 
 gen/moondcr0.inc: gen/moondcr0.bin.lst
 	@printf $(BEGIN)$@$(END)
-	echo infinite_loop equ 0x$$(grep 'infinite_loop:' gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2) > gen/moondcr0.inc;
-	echo read_sectors equ 0x$$(grep 'read_sectors:' gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2) >> gen/moondcr0.inc;
+	rm -f gen/moondcr0.inc
+	for f in infinite_loop read_sectors; do \
+		echo $$f equ 0x$$(grep "$$f:" gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2) >> gen/moondcr0.inc; \
+	done
 
 # Special compilation for image printing tool
 obj/print_img.elf: src/print_img.c
