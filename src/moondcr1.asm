@@ -1,22 +1,17 @@
-;################
-;# Specify mode #
-;################
+;#########
+;# Notes #
+;#########
 
+; On memory organization:
+%include "src/moondcr0.inc"
+
+;#########
+;# Setup #
+;#########
+
+[cpu 8086]
 [bits 16]
-
-;#####################################
-;# Setup segment registers and stack #
-;#####################################
-
-[org 0x0800]
-jmp 0x07C0:start
-start:
-mov ax, cs
-mov ds, ax
-mov es, ax
-mov ss, ax
-xor sp, sp
-cld
+[org CODE_BASE]
 
 ;####################
 ;# Greeting message #
@@ -53,3 +48,10 @@ print:
 ;#################
 
 string_moondcr db 'Moondancer stage 1 loaded', 13, 10, 0
+
+;###########
+;# Filling #
+;###########
+
+moondcr1_end:
+times 512-($-$$) nop
