@@ -2,6 +2,9 @@
 ;# Notes #
 ;#########
 
+; On optimization:
+; ch is zero everywhere, at no point the program multiplies by numbers larger than 256 or does more than 256 repetitions
+
 ; On BIOS assumptions:
 ; int 0x13, ah 0x42: affects ah, assumed change flags
 ; int 0x10, dl 0x0E: assumed change flags
@@ -29,10 +32,10 @@
 
 jmp MOONDCR0_SEGMENT:start
 start:
-mov ax, cs
-mov ds, ax
-mov es, ax  ; Needed for cmps and few mov's
-mov ss, ax
+xor cx, cx
+mov ds, cx
+mov es, cx  ; Needed for cmps and few mov's
+mov ss, cx
 mov sp, DATA_BASE+DATA_SIZE
 push dx     ; Save dx at [DATA_BASE+DATA_SIZE-2]
 cld
@@ -44,7 +47,7 @@ cld
 xor ax, ax
 xor dx, dx
 mov si, MBR_BASE
-mov cx, 1
+inc cl                  ; mov cx, 1 (optimized)
 call read_sectors       ; Must re-read the first sector in order to be loadable by GRUB chainloader
 
 ;#########################
@@ -77,12 +80,12 @@ active_partition_loop_success:
 mov ax, [bp+8]          ; 8   = active partition's starting sector, low
 mov dx, [bp+8+2]        ; 8+2 = active partition's starting sector, high
 mov si, BPB_BASE
-mov cx, 1
+                        ; mov cx, 1 (optimized)
 call read_sectors
 
-mov si, string_fat32
-mov di, BPB_BASE+82     ; 82 = address of the "FAT32   " signature
-mov cx, 8
+mov di, string_fat32
+mov si, BPB_BASE+82     ; 82 = address of the "FAT32   " signature
+mov cl, 8               ; mov cx, 8 (optimized)
 repe cmpsb
 clc
 mov al, 'F'
@@ -97,7 +100,7 @@ mov si, BPB_BASE+44
 lodsw                         ; 44   = root cluster, low
 mov dx, [si]                  ; 44+2 = root cluster, high (minus 2 because added by lodsw)
 read_file_loop:
-   xor cl, cl
+   xor cx, cx
    mov bx, 0x0FFF
    and dx, bx
    push dx ;stack 1
@@ -118,7 +121,7 @@ read_file_loop:
    sbb dx, 0
 
    ; dx:ax = (file_ct-2) * cluster_size_lsc
-   xor cx, cx
+                              ; xor ch, ch (optimized)
    mov cl, [BPB_BASE+13]      ; 13 = cluster size in logical sectors
    push cx ;stack 3
    call multiply
@@ -129,7 +132,7 @@ read_file_loop:
    mov si, BPB_BASE+36
    lodsw                      ; 36   = extended FAT size, low
    mov dx, [si]               ; 36+2 = extended FAT size, high (minus 2 because added by lodsw)
-   xor cx, cx
+                              ; xor ch, ch (optimized)
    mov cl, [si-22]            ; 16 = number of FAT tables, -22 = 16-(36+2)
    call multiply
 
@@ -145,14 +148,15 @@ read_file_loop:
    mov [bp+BP_SECTOR_HIGH], dx
 
    ; Loop 2: Iterate over physical sectors in cluster to read (doing it here because cx is set by add_multiply_add)
+   ; ax = logical_sector_size_sc * cluster_size_lsc (both numbers are guaranteed to be less than 256)
    pop ax ;stack 3
-   mul cl                     ; cx is left over add_multiply_add, and both numbers are less then 256
+   mul cl                     ; cx is left over add_multiply_add
    mov [bp+BP_COUNTER], ax
    read_file_segment_loop:
       ; Read sector dx:ax
       mov ax, [bp+BP_SECTOR_LOW]
       mov si, FILE_BASE
-      mov cx, 1
+      mov cl, 1               ; mov cx, 1 (optimized)
       call read_sectors
 
       ; Check if read target file
@@ -165,7 +169,7 @@ read_file_loop:
          add dx, 32
          mov si, dx
          mov di, string_moondcr
-         mov cx, 12
+         mov cl, 12           ; mov cx, 12 (optimized)
          repe cmpsb
          stc
          mov al, 'M'
@@ -189,7 +193,7 @@ read_file_loop:
    shl bx, 1
    xor bh, bh
    shl bx, 1
-   mov cx, 7
+   mov cl, 7                  ; mov cx, 7 (optimized)
    read_file_loop_advance_cluster_loop:
       shr di, 1
       rcr si, 1
@@ -207,7 +211,7 @@ read_file_loop:
    
    ; Read sector dx:ax
    mov si, FILE_BASE
-   mov cx, 1
+   mov cl, 1                  ; mov cx, 1 (optimized)
    call read_sectors
 
    ; dx:ax = file_ct
@@ -232,7 +236,7 @@ jmp read_file_loop
 ;###################
 
 ; Reads count sectors starting with sector start_sc_high:start_sc_low and places them to destination
-; Footprint: ax, bx, cx, dx, si
+; Footprint: ax, bx, dl, si
 ; read_sectors(uint16_t start_sc_high, uint16_t start_sc_low, void *destination, uint16_t count)
 ; read_sectors(dx, ax, si, cx)
 read_sectors:
@@ -268,8 +272,8 @@ read_sectors:
 
 ; Performs the following calculation: address = begin_lba_sc + logical_sector_size_sc * (reserved_size_lsc + N)
 ; Footprint: ax, bx, cx, dx
-; add_multiply_add(uint16_t high, uint16_t low) -> uint16_t high, uint16_t low, uint16_t logical_sector_size_sc
-; add_multiply_add(dx, ax) -> dx, ax, cx
+; add_multiply_add(uint16_t high, uint16_t low) -> uint16_t high, uint16_t low, uint8_t logical_sector_size_sc
+; add_multiply_add(dx, ax) -> dx, ax, cl
 add_multiply_add:
    add ax, [BPB_BASE+14]   ; 14 = number of reserved logical sectors
    adc dx, 0

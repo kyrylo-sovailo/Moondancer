@@ -146,7 +146,7 @@ int main(void)
     const uint16_t ex_fat_size_lsc = ((struct FAT32_BPB*)buffer)->ex_fat_size_lsc;
     const uint32_t root_ct = ((struct FAT32_BPB*)buffer)->root_ct;
     const uint16_t fsinfo_lsc = ((struct FAT32_BPB*)buffer)->fsinfo_lsc;
-    const uint16_t logical_sector_size_sc = logical_sector_size_bt / SECTOR_SIZE;
+    const uint8_t logical_sector_size_sc = logical_sector_size_bt / SECTOR_SIZE;
     printf("BPB:\n");
     printf("logical_sector_size_bt == %d\n", ((struct BPB*)buffer)->logical_sector_size_bt);
     printf("cluster_size_lsc       == %d\n", ((struct BPB*)buffer)->cluster_size_lsc);
