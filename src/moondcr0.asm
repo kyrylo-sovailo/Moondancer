@@ -149,13 +149,13 @@ read_file_loop:
    ; ax = logical_sector_size_sc * cluster_size_lsc (both numbers are guaranteed to be less than 256)
    xchg ax, di                ; cluster size to ax, low sector number to di
    mul cl                     ; cx is left over add_multiply_add
-   mov bx, ax
+   mov cx, ax
    mov ax, di                 ; low sector number to ax
    read_file_segment_loop:
       ; Read sector dx:ax
       push dx ;stack 3
       push ax ;stack 4
-      push bx ;stack 5
+      push cx ;stack 5
       mov si, FILE_BASE
       mov cl, 1               ; mov cx, 1 (optimized)
       call read_sectors
@@ -165,9 +165,8 @@ read_file_loop:
       jz FILE_BASE            ; Leap of faith
 
       ; Loop 3: Iterate over FAT records in a physical sector
-      mov dx, FILE_BASE+0-32  ; 0 = file name (minus 32 because added by add)
+      mov dx, FILE_BASE+0     ; 0 = file name (minus 32 because added by add)
       read_file_list_loop:
-         add dx, 32
          mov si, dx
          mov di, string_moondcr
          mov cl, 12           ; mov cx, 12 (optimized)
@@ -176,17 +175,17 @@ read_file_loop:
          mov al, 'M'
          call print_success_failure
          jz read_file_list_loop_success
-         cmp dx, FILE_BASE+512-32
+         add dx, 32
+         cmp dh, (FILE_BASE+512) >> 8
          jb read_file_list_loop
 
       ; moondcr1.bin not found, go to next physical sector
-      pop bx ;stack 5
+      pop cx ;stack 5
       pop ax ;stack 4
       pop dx ;stack 3
       inc ax
       adc dx, 0
-      dec bx
-      jnz read_file_segment_loop
+      loop read_file_segment_loop
 
    ; moondcr1.bin not found and ran out of physical sectors in cluster, go to next cluster
    ; di:si = (file_ct * sizeof(uint32_t)) / 512, bx = (file_ct * sizeof(uint32_t)) % 512
