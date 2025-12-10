@@ -76,23 +76,31 @@ img/fat32.img: bin/moondcr1.bin
 	mcopy bin/moondcr1.bin :: -i img/fat32.img -o || { rm -f img/fat32.img; exit 1; }
 
 # Flat binary and ELF
-bin/%.bin: src/%.asm src/moondcr0.inc
+bin/%.bin: src/%.asm src/moondcr0.inc gen/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p bin
 	nasm src/$*.asm -f bin -o bin/$*.bin
 
-obj/%.o: src/%.asm src/moondcr0.inc
+obj/%.o: src/%.asm src/moondcr0.inc gen/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p obj
 	nasm src/$*.asm -DELF=YES -f elf -g -F dwarf -o obj/$*.o
 
 # Special assembly for moondcr0
-bin/moondcr0.bin: src/moondcr0.asm src/moondcr0.inc
+bin/moondcr0.bin gen/moondcr0.lst: gen/moondcr0.bin.lst ;
+
+gen/moondcr0.bin.lst: src/moondcr0.asm src/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p bin
-	nasm src/moondcr0.asm -f bin -o bin/moondcr0.bin -l bin/moondcr0.lst
-	REAL_CODE_SIZE=$$(grep 'moondcr0_end:' bin/moondcr0.lst -A1 | tail -n 1 | xargs | cut -d ' ' -f 2 | { read h; printf '%d\n' "0x$$h"; }); \
-	echo REAL_CODE_SIZE=$$REAL_CODE_SIZE
+	mkdir -p gen
+	nasm src/moondcr0.asm -f bin -o bin/moondcr0.bin -l gen/moondcr0.lst
+	grep 'moondcr0_end:' gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2 | { read h; printf '%d\n' "0x$$h"; }
+	touch $@
+
+gen/moondcr0.inc: gen/moondcr0.bin.lst
+	@printf $(BEGIN)$@$(END)
+	echo infinite_loop equ 0x$$(grep 'infinite_loop:' gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2) > gen/moondcr0.inc;
+	echo read_sectors equ 0x$$(grep 'read_sectors:' gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2) >> gen/moondcr0.inc;
 
 # Special compilation for image printing tool
 obj/print_img.elf: src/print_img.c

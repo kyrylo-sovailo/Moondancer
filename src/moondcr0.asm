@@ -2,15 +2,6 @@
 ;# Notes #
 ;#########
 
-; On memory organization:
-%include "src/moondcr0.inc"
-
-; On register organization:
-; BP is used as general purpose register
-; ES is needed only for cmps
-; FS is used for storage
-; GS is unused
-
 ; On BIOS assumptions:
 ; int 0x13, ah 0x42: affects ah, assumed change flags
 ; int 0x10, dl 0x0E: assumed change flags
@@ -29,11 +20,13 @@
 
 [cpu 8086]
 [bits 16]
+%include "src/moondcr0.inc"
 %ifndef ELF
-[org CODE_BASE]
+   [org CODE_BASE]
 %else
-times CODE_BASE nop
+   times CODE_BASE nop
 %endif
+
 jmp MOONDCR0_SEGMENT:start
 start:
 mov ax, cs
@@ -336,9 +329,9 @@ string_fat32:     db 'FAT32   '
 
 moondcr0_end:
 %ifndef ELF
-times 440-($-$$) nop ; Fill code with nop
-db 'MDCR'            ; Unique ID
-db 0, 0              ; Signature
-times 510-(440) db 0 ; Partition table
-db 0x55, 0xAA        ; Boot signature
+   times 440-($-$$) nop ; Fill code with nop
+   db 'MDCR'            ; Unique ID
+   db 0, 0              ; Signature
+   times 510-(440) db 0 ; Partition table
+   db 0x55, 0xAA        ; Boot signature
 %endif
