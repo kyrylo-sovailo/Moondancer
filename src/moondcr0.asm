@@ -123,10 +123,10 @@ read_file_loop:
    ; dx:ax = (file_ct-2) * cluster_size_lsc
                               ; xor ch, ch (optimized)
    mov cl, [BPB_BASE+13]      ; 13 = cluster size in logical sectors
-   push cx ;stack 3
+   mov di, cx
    call multiply
-   push dx ;stack 4
-   push ax ;stack 5
+   push dx ;stack 3
+   push ax ;stack 4
 
    ; dx:ax = ex_fat_size_lsc * fat_number
    mov si, BPB_BASE+36
@@ -137,24 +137,25 @@ read_file_loop:
    call multiply
 
    ; dx:ax = ex_fat_size_lsc * fat_number + (file_ct - 2) * cluster_size_lsc
-   pop bx ;stack 5
-   pop cx ;stack 4
+   pop bx ;stack 4
+   pop cx ;stack 3
    add ax, bx
    adc dx, cx
 
    ; dx:ax = begin_lba_sc + logical_sector_size_sc * (reserved_size_lsc + ex_fat_size_lsc * fat_number + (root_ct - 2) * cluster_size_lsc)
    call add_multiply_add
-   mov [bp+BP_SECTOR_LOW], ax ; TODO: potentially can be put on stack, but debugging first
-   mov [bp+BP_SECTOR_HIGH], dx
 
    ; Loop 2: Iterate over physical sectors in cluster to read (doing it here because cx is set by add_multiply_add)
    ; ax = logical_sector_size_sc * cluster_size_lsc (both numbers are guaranteed to be less than 256)
-   pop ax ;stack 3
+   xchg ax, di                ; cluster size to ax, low sector number to di
    mul cl                     ; cx is left over add_multiply_add
-   mov [bp+BP_COUNTER], ax
+   mov bx, ax
+   mov ax, di                 ; low sector number to ax
    read_file_segment_loop:
       ; Read sector dx:ax
-      mov ax, [bp+BP_SECTOR_LOW]
+      push dx ;stack 3
+      push ax ;stack 4
+      push bx ;stack 5
       mov si, FILE_BASE
       mov cl, 1               ; mov cx, 1 (optimized)
       call read_sectors
@@ -179,9 +180,12 @@ read_file_loop:
          jb read_file_list_loop
 
       ; moondcr1.bin not found, go to next physical sector
-      inc [bp+BP_SECTOR_LOW]
-      adc [bp+BP_SECTOR_HIGH], 0
-      dec [bp+BP_COUNTER]
+      pop bx ;stack 5
+      pop ax ;stack 4
+      pop dx ;stack 3
+      inc ax
+      adc dx, 0
+      dec bx
       jnz read_file_segment_loop
 
    ; moondcr1.bin not found and ran out of physical sectors in cluster, go to next cluster
@@ -224,8 +228,7 @@ read_file_loop:
 ; moondcr1.bin found, go to next cluster
 ; This piece of code does not belong to any indentation level, it is on its own
 read_file_list_loop_success:
-pop ax ;stack 2
-pop dx ;stack 1
+add sp, 10 ;stack 5, stack 4, stack 3, stack 2, stack 1
 not byte [bp]
 mov ax, [si-12+26]      ; 26 = address of file cluster, low (minus 12 because si = dx + 12 if repe cmpsb succeeds)
 mov dx, [si-12+20]      ; 20 = address of file cluster, high (minus 12 because si = dx + 12 if repe cmpsb succeeds)
