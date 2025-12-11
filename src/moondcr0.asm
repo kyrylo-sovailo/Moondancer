@@ -2,6 +2,14 @@
 ;# Notes #
 ;#########
 
+; On switches:
+; MBR_BINARY - produce binary embedded in MBR header
+; FAT32_BINARY - produce binary embedded in FAT32 header
+; ELF_BINARY - produce ELF
+; ENABLE_LBA - enable LBA read_sectors
+; ENABLE_CHS - enable CHS read_sectors
+; ENABLE_MBR - enable MBR and partition search, otherwise assume FAT on first sector
+
 ; On optimization:
 ; ch is zero everywhere, at no point the program multiplies by numbers larger than 256 or does more than 256 repetitions
 
@@ -24,9 +32,15 @@
 [cpu 8086]
 [bits 16]
 %include "src/moondcr0.inc"
-%ifndef ELF
+%ifdef MBR_BINARY
    [org CODE_BASE]
-%else
+%elif FAT32_BINARY
+   [org CODE_BASE]
+   jmp fat32_start
+   times 3-($-$$) nop
+   times 87 nop
+   fat32_start:
+%elif ELF_BINARY
    times CODE_BASE nop
 %endif
 
@@ -44,17 +58,21 @@ cld
 ;# Read MBR sector #
 ;###################
 
+%ifdef ENABLE_MBR
 xor ax, ax
 xor dx, dx
 mov si, MBR_BASE
 inc cl                  ; mov cx, 1 (optimized)
 call read_sectors       ; Must re-read the first sector in order to be loadable by GRUB chainloader
+%endif
 
 ;#########################
 ;# Find active partition #
 ;#########################
 
+%ifdef ENABLE_MBR
 mov bp, MBR_BASE+446-16 ; 446 = first partition's attribute (minus 16 because added by add)
+mov cl, 4
 active_partition_loop:
    add bp, 16
    mov al, [bp]
@@ -63,24 +81,26 @@ active_partition_loop:
    stc
    mov al, 'A'
    call print_success_failure
-   jz active_partition_loop_success
-   cmp bp, MBR_BASE+446+3*16
-   jb active_partition_loop
-
-infinite_loop:
-   hlt
-   jmp infinite_loop
-
-active_partition_loop_success:
+   loopne active_partition_loop
+jnz infinite_loop
+%else
+xor bp, bp
+dec bp
+%endif
 
 ;#####################
 ;# Read FAT32 header #
 ;#####################
 
-mov ax, [bp+8]          ; 8   = active partition's starting sector, low
-mov dx, [bp+8+2]        ; 8+2 = active partition's starting sector, high
+%ifdef ENABLE_MBR
+   mov ax, [bp+8]       ; 8   = active partition's starting sector, low
+   mov dx, [bp+8+2]     ; 8+2 = active partition's starting sector, high
+%else
+   xor ax, ax
+   xor dx, dx
+%endif
 mov si, BPB_BASE
-                        ; mov cx, 1 (optimized)
+mov cl, 1               ; mov cx, 1 (optimized)
 call read_sectors
 
 mov di, string_fat32
@@ -161,7 +181,11 @@ read_file_loop:
       call read_sectors
 
       ; Check if read target file
-      test byte [bp], 0x80
+      %ifdef ENABLE_MBR
+         test byte [bp], 0x80
+      %else
+         or bp, bp
+      %endif
       jz FILE_BASE            ; Leap of faith
 
       ; Loop 3: Iterate over FAT records in a physical sector
@@ -228,7 +252,11 @@ read_file_loop:
 ; This piece of code does not belong to any indentation level, it is on its own
 read_file_list_loop_success:
 add sp, 10 ;stack 5, stack 4, stack 3, stack 2, stack 1
-not byte [bp]
+%ifdef ENABLE_MBR
+   not byte [bp]
+%else
+   not bp
+%endif
 mov ax, [si-12+26]      ; 26 = address of file cluster, low (minus 12 because si = dx + 12 if repe cmpsb succeeds)
 mov dx, [si-12+20]      ; 20 = address of file cluster, high (minus 12 because si = dx + 12 if repe cmpsb succeeds)
 jmp read_file_loop
@@ -238,9 +266,10 @@ jmp read_file_loop
 ;###################
 
 ; Reads count sectors starting with sector start_sc_high:start_sc_low and places them to destination
-; Footprint: ax, bx, dl, si
+; Footprint: ax, bx, dl, si, di
 ; read_sectors(uint16_t start_sc_high, uint16_t start_sc_low, void *destination, uint16_t count)
 ; read_sectors(dx, ax, si, cx)
+%ifdef ENABLE_LBA
 read_sectors:
    ; Start (8 bytes)
    xor bx, bx
@@ -267,6 +296,55 @@ read_sectors:
    call print_success_failure
    add sp, 16
    ret
+%endif
+
+%ifdef ENABLE_CHS
+read_sectors:
+   push cx     ; stack 1
+   push si     ; stack 2
+   push cx     ; stack 3
+   push dx     ; stack 4
+   push ax     ; stack 5
+
+   ; Get disk parameters
+   mov ah, 0x08
+   xor bh, bh
+   mov dl, [DATA_BASE+DATA_SIZE-2]
+   mov si, dx
+   xor di, di
+   int 0x13
+   adc bh, 0   ; ZF = !CF = !error = success, CF = 0
+   jnz read_sectors_early_exit
+
+   ; First divide
+   mov bl, dh
+   pop ax      ; stack 5
+   pop dx      ; stack 4
+   and cx, 0x00FC
+   div cx      ; ax = address / number_of_sectors, dx = address % number_of_sectors (aka sector - 1), PRECISION IS LOST
+   
+   ; Second divide
+   div bl      ; al = (address / number_of_sectors) / number_of_heads (aka cylinder), ah = (address / number_of_sectors) % number_of_heads (aka head)
+
+   ;Read disk
+   mov cl, dl  ; PRECISION IS LOST
+   mov ch, al
+   mov dx, si
+   mov dh, ah
+   pop ax      ; stack 3
+   mov ah, 0x02
+   xor bx, bx
+   mov es, bx
+   pop bx      ; stack 2
+   int 0x13
+
+   adc bl, 0   ; ZF = !CF = !error = success, CF = 0 (assuming destination ends with 0x00)
+   read_sectors_early_exit:
+   mov al, 'R'
+   call print_success_failure
+   pop cx      ; stack 1
+   ret
+%endif
 
 ;##################
 ;# Math functions #
@@ -287,8 +365,10 @@ add_multiply_add:
 
    call multiply
 
-   add ax, [bp+8]          ; 8   = active partition's starting sector, low
-   adc dx, [bp+8+2]        ; 8+2 = active partition's starting sector, high
+   %ifdef ENABLE_MBR
+      add ax, [bp+8]       ; 8   = active partition's starting sector, low
+      adc dx, [bp+8+2]     ; 8+2 = active partition's starting sector, high
+   %endif
    ret
 
 ; Multiplies number by other number
@@ -325,6 +405,10 @@ print_success_failure:
    ja infinite_loop  ; if ZF == 0 and CF == 0 (!success && !continue_on_failure)
    ret
 
+   infinite_loop:
+      hlt
+      jmp infinite_loop
+
 ;#################
 ;# Text messages #
 ;#################
@@ -337,7 +421,7 @@ string_fat32:     db 'FAT32   '
 ;###########
 
 moondcr0_end:
-%ifndef ELF
+%ifndef ELF_BINARY
    times 440-($-$$) nop ; Fill code with nop
    db 'MDCR'            ; Unique ID
    db 0, 0              ; Signature

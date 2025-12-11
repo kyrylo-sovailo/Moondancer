@@ -48,7 +48,7 @@ img/mbr.img: bin/moondcr0.bin img/fat32.img
 	mkdir -p img
 	if [ ! -f img/mbr.img ]; then \
 		dd if=/dev/zero of=img/mbr.img bs=$(SECTOR_SIZE_BT) count=$(MBR_SIZE_SC) || { rm -f img/mbr.img; exit 1; }; \
-		REAL_INFO=$$(fdisk img/mbr.img < src/mbr.fdisk | grep -o -E 'mbr.img1[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+' | xargs) || { rm -f img/mbr.img; exit 1; }; \
+		REAL_INFO=$$(fdisk img/mbr.img < src/mbr.fdisk | tr -d '*' | grep -o -E 'mbr.img1[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+' | xargs) || { rm -f img/mbr.img; exit 1; }; \
 		REAL_FAT32_OFFSET_SC=$$(echo $$REAL_INFO | cut -d ' ' -f 2); \
 		REAL_FAT32_SIZE_SC=$$(echo $$REAL_INFO | cut -d ' ' -f 4); \
 		echo REAL_FAT32_OFFSET_SC=$$REAL_FAT32_OFFSET_SC; \
@@ -79,12 +79,12 @@ img/fat32.img: bin/moondcr1.bin
 bin/%.bin: src/%.asm src/moondcr0.inc gen/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p bin
-	nasm src/$*.asm -f bin -o bin/$*.bin
+	nasm src/$*.asm -DENABLE_LBA -DENABLE_MBR -DMBR_BINARY -f bin -o bin/$*.bin
 
 obj/%.o: src/%.asm src/moondcr0.inc gen/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p obj
-	nasm src/$*.asm -DELF=YES -f elf -g -F dwarf -o obj/$*.o
+	nasm src/$*.asm -DENABLE_LBA -DENABLE_MBR -DELF_BINARY -f elf -g -F dwarf -o obj/$*.o
 
 # Special assembly for moondcr0
 bin/moondcr0.bin gen/moondcr0.lst: gen/moondcr0.bin.lst ;
@@ -93,7 +93,7 @@ gen/moondcr0.bin.lst: src/moondcr0.asm src/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p bin
 	mkdir -p gen
-	nasm src/moondcr0.asm -f bin -o bin/moondcr0.bin -l gen/moondcr0.lst
+	nasm src/moondcr0.asm -DENABLE_LBA -DENABLE_MBR -DMBR_BINARY -f bin -o bin/moondcr0.bin -l gen/moondcr0.lst
 	grep "moondcr0_end:" gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2 | { read h; printf '%d\n' "0x$$h"; }
 	touch $@
 
