@@ -2,8 +2,14 @@
 
 ### File organization
 
+Images:
+ - `mbr.img` - MBR disk image with `moondcr0.bin` embedded (can be flashed to hard drive)
+ - `fat32.img` - FAT32 image with `moondcrf.bin` embedded (can be flashed to floppy)
+
 Binaries:
- - `moondcr0.bin` - binary that can be embedded into an MBR or loaded by chainloader
- - `moondcr1.bin` - 512 bytes file, continuation of `moondcr0.bin`
- - `moondcrf.bin` - binary that can be embedded into an FAT32 or loaded by chainloader
- - `moondcrg.bin` - 512 bytes file, continuation of `moondcrf.bin`
+ - `notboot0.bin` - MBR-embedded stub
+ - `moondcr0.bin` - MBR-embedded minimal bootable, loads `moondcr1.bin` into memory
+ - `moondcr1.bin` - Second part of `moondcr0.bin`
+ - `moondcr2.bin` - Main assembly, runs hardware checks and enters long mode
+ - `moondcr3.bin` - Main executable, runs in long mode
+ - `notbootf.bin`, `moondcrf.bin`, `moondcrg.bin` - FAT32 versions of `notboot0.bin`, `moondcr0.bin`, and `moondcr1.bin`

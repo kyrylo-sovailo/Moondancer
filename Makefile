@@ -1,38 +1,45 @@
 #!/usr/bin/make -f
 
-KB := $(shell expr 1024)
-MB := $(shell expr 1024 \* 1024)
-GB := $(shell expr 1024 \* 1024 \* 1024)
-SECTOR_SIZE_BT := 512
-LOGICAL_SECTOR_SIZE_BT := 4096
-FAT32_SIZE_BT := $(shell expr 16 \* $(MB))
-FAT32_SIZE_SC := $(shell expr $(FAT32_SIZE_BT) / $(SECTOR_SIZE_BT))
-FAT32_OFFSET_SC := 2048
-MBR_SIZE_SC := $(shell expr $(FAT32_SIZE_SC) + $(FAT32_OFFSET_SC))
-MBR_SIZE_BT := $(shell expr $(MBR_SIZE_SC) \* $(SECTOR_SIZE_BT))
+#########
+# Setup #
+#########
 
 BEGIN="\033[00;32mBuilding "
 BEGIN_PHONY="\033[00;32mTarget "
 END="\033[0m\n"
 
-# End targets
-all: img/mbr.img
+###############
+# End targets #
+###############
+
+all: img/mbr.img img/fat32.img
 	@printf $(BEGIN_PHONY)$@$(END)
 
-print: img/mbr.img obj/print_img.elf
+print: img/mbr.img obj/print_mbr.elf
 	@printf $(BEGIN_PHONY)$@$(END)
-	obj/print_img.elf
+	obj/print_mbr.elf
 
 .PHONY: run
 run: img/mbr.img
 	@printf $(BEGIN_PHONY)$@$(END)
-	qemu-system-x86_64 -machine accel=tcg -drive file=img/mbr.img,index=0,media=disk,format=raw
+	qemu-system-x86_64 -machine accel=tcg -drive file=img/mbr.img,if=ide,media=disk,format=raw
 
 .PHONY: debug
-debug: img/mbr.img obj/moondcr0.o
+debug: img/mbr.img obj/moondcr0.elf
 	@printf $(BEGIN_PHONY)$@$(END)
-	qemu-system-x86_64 -machine accel=tcg -drive file=img/mbr.img,index=0,media=disk,format=raw -S -s &
-	gdb -ex "target remote :1234" -ex "symbol-file obj/moondcr0.o" -ex "break *0x7c00" -ex "continue"
+	qemu-system-x86_64 -machine accel=tcg -drive file=img/mbr.img,if=ide,media=disk,format=raw -S -s &
+	gdb -ex "target remote :1234" -ex "symbol-file obj/moondcr0.elf" -ex "break *0x7c00" -ex "continue"
+
+.PHONY: run_floppy
+run_floppy: img/fat32.img
+	@printf $(BEGIN_PHONY)$@$(END)
+	qemu-system-x86_64 -machine accel=tcg -drive file=img/fat32.img,if=floppy,media=disk,format=raw
+
+.PHONY: debug_floppy
+debug_floppy: img/fat32.img obj/moondcrf.elf
+	@printf $(BEGIN_PHONY)$@$(END)
+	qemu-system-x86_64 -machine accel=tcg -drive file=img/fat32.img,if=floppy,media=disk,format=raw -S -s &
+	gdb -ex "target remote :1234" -ex "symbol-file obj/moondcrf.elf" -ex "break *0x7c00" -ex "continue"
 
 .PHONY: clean
 clean:
@@ -42,70 +49,116 @@ clean:
 	rm -rf img
 	rm -rf obj
 
-# Construct full disk image
-img/mbr.img: bin/moondcr0.bin img/fat32.img
+##########
+# Images #
+##########
+
+# MBR image with one FAT32 partition
+img/mbr.img: bin/notboot0.bin bin/moondcr0.bin bin/moondcr1.bin bin/notbootf.bin bin/moondcrf.bin bin/moondcrg.bin
 	@printf $(BEGIN)$@$(END)
 	mkdir -p img
-	if [ ! -f img/mbr.img ]; then \
-		dd if=/dev/zero of=img/mbr.img bs=$(SECTOR_SIZE_BT) count=$(MBR_SIZE_SC) || { rm -f img/mbr.img; exit 1; }; \
-		REAL_INFO=$$(fdisk img/mbr.img < src/mbr.fdisk | tr -d '*' | grep -o -E 'mbr.img1[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+' | xargs) || { rm -f img/mbr.img; exit 1; }; \
-		REAL_FAT32_OFFSET_SC=$$(echo $$REAL_INFO | cut -d ' ' -f 2); \
-		REAL_FAT32_SIZE_SC=$$(echo $$REAL_INFO | cut -d ' ' -f 4); \
-		echo REAL_FAT32_OFFSET_SC=$$REAL_FAT32_OFFSET_SC; \
-		echo REAL_FAT32_SIZE_SC=$$REAL_FAT32_SIZE_SC; \
-		if [ $$REAL_FAT32_OFFSET_SC != $(FAT32_OFFSET_SC) ]; then rm -f img/mbr.img; exit 1; fi; \
-		if [ $$REAL_FAT32_SIZE_SC != $(FAT32_SIZE_SC) ]; then rm -f img/mbr.img; exit 1; fi; \
-	fi
-	dd if=img/fat32.img of=img/mbr.img seek=$(FAT32_OFFSET_SC) bs=$(SECTOR_SIZE_BT) count=$(FAT32_SIZE_SC) conv=notrunc || { rm -f img/mbr.img; exit 1; }
-	dd if=bin/moondcr0.bin of=img/mbr.img bs=1 count=446 conv=notrunc || { rm -f img/mbr.img; exit 1; }
+	src/helper.sh create_mbr img/mbr.img
+	src/helper.sh copy_to_mbr img/mbr.img bin/notboot0.bin notboot0.bin
+	src/helper.sh copy_to_mbr img/mbr.img bin/moondcr0.bin moondcr0.bin
+	src/helper.sh copy_to_mbr img/mbr.img bin/moondcr1.bin moondcr1.bin
+	src/helper.sh copy_to_mbr img/mbr.img bin/notbootf.bin notbootf.bin
+	src/helper.sh copy_to_mbr img/mbr.img bin/moondcrf.bin moondcrf.bin
+	src/helper.sh copy_to_mbr img/mbr.img bin/moondcrg.bin moondcrg.bin
 
-# Construct filesystem image
-img/fat32.img: bin/moondcr1.bin
+# FAT32 image
+img/fat32.img: bin/notboot0.bin bin/moondcr0.bin bin/moondcr1.bin bin/notbootf.bin bin/moondcrf.bin bin/moondcrg.bin
 	@printf $(BEGIN)$@$(END)
 	mkdir -p img
-	if [ ! -f img/fat32.img ]; then \
-		dd if=/dev/zero of=img/fat32.img bs=1M count=16 || { rm -f img/fat32.img; exit 1; }; \
-		mformat -M $(LOGICAL_SECTOR_SIZE_BT) -v 'MOONDNCR' -F -i img/fat32.img || { rm -f img/fat32.img; exit 1; }; \
-		REAL_LOGICAL_SECTOR_SIZE_BT=$$(dd if=img/fat32.img skip=11 bs=1 count=2 | od -An -t u1 | xargs); \
-		REAL_LOGICAL_SECTOR_SIZE_BT_LOW=$$(echo $$REAL_LOGICAL_SECTOR_SIZE_BT | cut -d ' ' -f 1); \
-		REAL_LOGICAL_SECTOR_SIZE_BT_HIGH=$$(echo $$REAL_LOGICAL_SECTOR_SIZE_BT | cut -d ' ' -f 2); \
-		REAL_LOGICAL_SECTOR_SIZE_BT=$$(expr 256 \* $$REAL_LOGICAL_SECTOR_SIZE_BT_HIGH + $$REAL_LOGICAL_SECTOR_SIZE_BT_LOW); \
-		echo REAL_LOGICAL_SECTOR_SIZE_BT=$$REAL_LOGICAL_SECTOR_SIZE_BT; \
-		if [ $$REAL_LOGICAL_SECTOR_SIZE_BT != $(LOGICAL_SECTOR_SIZE_BT) ]; then echo rm -f img/fat32.img; exit 1; fi; \
-	fi
-	mcopy bin/moondcr1.bin :: -i img/fat32.img -o || { rm -f img/fat32.img; exit 1; }
+	src/helper.sh create_fat32 img/fat32.img
+	src/helper.sh copy_to_fat32 img/fat32.img bin/notboot0.bin notboot0.bin
+	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcr0.bin moondcr0.bin
+	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcr1.bin moondcr1.bin
+	src/helper.sh copy_to_fat32 img/fat32.img bin/notbootf.bin notbootf.bin
+	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcrf.bin moondcrf.bin
+	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcrg.bin moondcrg.bin
 
-# Flat binary and ELF
-bin/%.bin: src/%.asm src/moondcr0.inc gen/moondcr0.inc
+############
+# Binaries #
+############
+
+# Stubs
+bin/notboot0.bin: src/notboot0.asm src/macro.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p bin
-	nasm src/$*.asm -DENABLE_LBA -DENABLE_MBR -DMBR_BINARY -f bin -o bin/$*.bin
+	nasm src/notboot0.asm -DMBR_BINARY -f bin -o bin/notboot0.bin
 
-obj/%.o: src/%.asm src/moondcr0.inc gen/moondcr0.inc
+bin/notbootf.bin: src/notboot0.asm src/macro.inc
+	@printf $(BEGIN)$@$(END)
+	mkdir -p bin
+	nasm src/notboot0.asm -DFAT32_BINARY -f bin -o bin/notbootf.bin
+
+obj/notboot0.elf: src/notboot0.asm src/macro.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p obj
-	nasm src/$*.asm -DENABLE_LBA -DENABLE_MBR -DELF_BINARY -f elf -g -F dwarf -o obj/$*.o
+	nasm src/notboot0.asm -DMBR_BINARY -DDEBUG_ELF -f elf -g -F dwarf -o obj/notboot0.elf
 
-# Special assembly for moondcr0
-bin/moondcr0.bin gen/moondcr0.lst: gen/moondcr0.bin.lst ;
-
-gen/moondcr0.bin.lst: src/moondcr0.asm src/moondcr0.inc
+obj/notbootf.elf: src/notboot0.asm src/macro.inc
 	@printf $(BEGIN)$@$(END)
-	mkdir -p bin
-	mkdir -p gen
-	nasm src/moondcr0.asm -DENABLE_LBA -DENABLE_MBR -DMBR_BINARY -f bin -o bin/moondcr0.bin -l gen/moondcr0.lst
-	grep "moondcr0_end:" gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2 | { read h; printf '%d\n' "0x$$h"; }
-	touch $@
+	mkdir -p obj
+	nasm src/notboot0.asm -DFAT32_BINARY -DDEBUG_ELF -f elf -g -F dwarf -o obj/notbootf.elf
 
-gen/moondcr0.inc: gen/moondcr0.bin.lst
+# First stage
+obj/moondcr0.elf: src/moondcr0.asm src/macro.inc
 	@printf $(BEGIN)$@$(END)
-	rm -f gen/moondcr0.inc
+	mkdir -p obj
+	nasm src/moondcr0.asm -DMBR_BINARY -DENABLE_LBA -DENABLE_MBR -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcr0.elf
+
+obj/moondcrf.elf: src/moondcr0.asm src/macro.inc
+	@printf $(BEGIN)$@$(END)
+	mkdir -p obj
+	nasm src/moondcr0.asm -DFAT32_BINARY -DENABLE_CHS -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcrf.elf
+
+bin/moondcr0.bin gen/moondcr0.inc: src/moondcr0.asm src/macro.inc
+	@printf $(BEGIN)$@$(END)
+	mkdir -p bin && mkdir -p gen
+	nasm src/moondcr0.asm -DMBR_BINARY -DENABLE_LBA -DENABLE_MBR -f bin -o bin/moondcr0.bin -l gen/moondcr0.lst
+	echo $$(src/helper.sh get_offset_dec gen/moondcr0.lst moondcr0_end) / 440
+	: > gen/moondcr0.inc
 	for f in infinite_loop read_sectors; do \
-		echo $$f equ 0x$$(grep "$$f:" gen/moondcr0.lst -A5 | grep -o -E '^[ ]*[0-9]+ [0-9A-F]+ [0-9A-F]+' | head -n 1 | xargs | cut -d ' ' -f 2) >> gen/moondcr0.inc; \
+		echo $$f equ $$(src/helper.sh get_offset gen/moondcr0.lst "$$f") >> gen/moondcr0.inc ; \
 	done
 
-# Special compilation for image printing tool
-obj/print_img.elf: src/print_img.c
+bin/moondcrf.bin gen/moondcrf.inc: src/moondcr0.asm src/macro.inc
+	@printf $(BEGIN)$@$(END)
+	mkdir -p bin && mkdir -p gen
+	nasm src/moondcr0.asm -DFAT32_BINARY -DENABLE_CHS -f bin -o bin/moondcrf.bin -l gen/moondcrf.lst
+	echo $$(expr $$(src/helper.sh get_offset_dec gen/moondcrf.lst moondcr0_end) - 90) / 420
+	: > gen/moondcrf.inc
+	for f in infinite_loop read_sectors; do \
+		echo $$f equ $$(src/helper.sh get_offset gen/moondcrf.lst "$$f") >> gen/moondcrf.inc ; \
+	done
+
+# Second stage
+obj/moondcr1.elf: src/moondcr1.asm src/macro.inc gen/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p obj
-	$(CC) src/print_img.c -o obj/print_img.elf
+	nasm src/moondcr1.asm -DENABLE_LBA -DENABLE_MBR -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcr1.elf
+
+obj/moondcrg.elf: src/moondcr1.asm src/macro.inc gen/moondcrf.inc
+	@printf $(BEGIN)$@$(END)
+	mkdir -p obj
+	nasm src/moondcr1.asm -DENABLE_CHS -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcrg.elf
+
+bin/moondcr1.bin: src/moondcr1.asm src/macro.inc gen/moondcr0.inc
+	@printf $(BEGIN)$@$(END)
+	mkdir -p bin
+	nasm src/moondcr1.asm -DENABLE_LBA -DENABLE_MBR -f bin -o bin/moondcr1.bin
+
+bin/moondcrg.bin: src/moondcr1.asm src/macro.inc gen/moondcrf.inc
+	@printf $(BEGIN)$@$(END)
+	mkdir -p bin
+	nasm src/moondcr1.asm -DENABLE_CHS -f bin -o bin/moondcrg.bin
+
+#########
+# Extra #
+#########
+
+obj/print_mbr.elf: src/print_mbr.c
+	@printf $(BEGIN)$@$(END)
+	mkdir -p obj
+	$(CC) src/print_mbr.c -o obj/print_mbr.elf

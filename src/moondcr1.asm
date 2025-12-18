@@ -4,15 +4,25 @@
 
 [cpu 8086]
 [bits 16]
+%include "src/macro.inc"
 %include "src/moondcr0.inc"
 %include "gen/moondcr0.inc"
-%ifndef ELF
-   [org FILE_BASE]
-%else
+%ifdef DEBUG_ELF
    times FILE_BASE nop
+   MANUAL_OFFSET equ FILE_BASE
+%else
+   [org FILE_BASE]
+   MANUAL_OFFSET equ 0
+%endif
+%ifndef FLAT_BINARY
+   %error "moondcr1.asm must be built with FLAT_BINARY"
 %endif
 
+%ifdef ENABLE_MBR
 not byte [bp]
+%else
+not bp
+%endif
 
 ;####################
 ;# Greeting message #
@@ -47,10 +57,3 @@ print:
 ;#################
 
 string_moondcr db 13, 10, 'Moondancer stage 1 loaded', 13, 10, 0
-
-;###########
-;# Filling #
-;###########
-
-moondcr1_end:
-times 512-($-$$) nop

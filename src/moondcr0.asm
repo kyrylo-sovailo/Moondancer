@@ -2,14 +2,6 @@
 ;# Notes #
 ;#########
 
-; On switches:
-; MBR_BINARY - produce binary embedded in MBR header
-; FAT32_BINARY - produce binary embedded in FAT32 header
-; ELF_BINARY - produce ELF
-; ENABLE_LBA - enable LBA read_sectors
-; ENABLE_CHS - enable CHS read_sectors
-; ENABLE_MBR - enable MBR and partition search, otherwise assume FAT on first sector
-
 ; On optimization:
 ; ch is zero everywhere, at no point the program multiplies by numbers larger than 256 or does more than 256 repetitions
 
@@ -31,17 +23,26 @@
 
 [cpu 8086]
 [bits 16]
+%include "src/macro.inc"
 %include "src/moondcr0.inc"
+%ifdef DEBUG_ELF
+   times CODE_BASE nop
+   MANUAL_OFFSET equ CODE_BASE
+%else
+   [org CODE_BASE]
+   MANUAL_OFFSET equ 0
+%endif
+%ifdef FLAT_BINARY
+   %error "moondcr0.asm cannot be assembled with FLAT_BINARY"
+%endif
 %ifdef MBR_BINARY
-   [org CODE_BASE]
-%elif FAT32_BINARY
-   [org CODE_BASE]
+   ; Do nothing
+%endif
+%ifdef FAT32_BINARY
    jmp fat32_start
-   times 3-($-$$) nop
+   times 3-($-$$-MANUAL_OFFSET) nop
    times 87 nop
    fat32_start:
-%elif ELF_BINARY
-   times CODE_BASE nop
 %endif
 
 jmp MOONDCR0_SEGMENT:start
@@ -320,8 +321,9 @@ read_sectors:
    mov bl, dh
    pop ax      ; stack 5
    pop dx      ; stack 4
-   and cx, 0x00FC
+   and cx, 0x003F
    div cx      ; ax = address / number_of_sectors, dx = address % number_of_sectors (aka sector - 1), PRECISION IS LOST
+   inc dx
    
    ; Second divide
    div bl      ; al = (address / number_of_sectors) / number_of_heads (aka cylinder), ah = (address / number_of_sectors) % number_of_heads (aka head)
@@ -421,10 +423,14 @@ string_fat32:     db 'FAT32   '
 ;###########
 
 moondcr0_end:
-%ifndef ELF_BINARY
-   times 440-($-$$) nop ; Fill code with nop
-   db 'MDCR'            ; Unique ID
-   db 0, 0              ; Signature
-   times 510-(440) db 0 ; Partition table
-   db 0x55, 0xAA        ; Boot signature
+%ifdef MBR_BINARY
+   times 440-($-$$-MANUAL_OFFSET) nop  ; Fill code with nop
+   db 'MDCR'                           ; Unique ID
+   db 0, 0                             ; Signature
+   times 510-440-6 db 0                ; Partition table
+   db 0x55, 0xAA                       ; Boot signature
+%endif
+%ifdef FAT32_BINARY
+   times 510-($-$$-MANUAL_OFFSET) nop  ; Fill code with nop
+   db 0x55, 0xAA                       ; Boot signature
 %endif
