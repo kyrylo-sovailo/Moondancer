@@ -111,7 +111,7 @@ obj/moondcr0.elf: src/moondcr0.asm src/macro.inc
 obj/moondcrf.elf: src/moondcr0.asm src/macro.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p obj
-	nasm src/moondcr0.asm -DFAT32_BINARY -DENABLE_CHS -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcrf.elf
+	nasm src/moondcr0.asm -DFAT32_BINARY -DENABLE_CHS -DENABLE_DIVISION_ERROR -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcrf.elf
 
 bin/moondcr0.bin gen/moondcr0.inc: src/moondcr0.asm src/macro.inc
 	@printf $(BEGIN)$@$(END)
@@ -126,7 +126,7 @@ bin/moondcr0.bin gen/moondcr0.inc: src/moondcr0.asm src/macro.inc
 bin/moondcrf.bin gen/moondcrf.inc: src/moondcr0.asm src/macro.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p bin && mkdir -p gen
-	nasm src/moondcr0.asm -DFAT32_BINARY -DENABLE_CHS -f bin -o bin/moondcrf.bin -l gen/moondcrf.lst
+	nasm src/moondcr0.asm -DFAT32_BINARY -DENABLE_CHS -DENABLE_DIVISION_ERROR -f bin -o bin/moondcrf.bin -l gen/moondcrf.lst
 	echo $$(expr $$(src/helper.sh get_offset_dec gen/moondcrf.lst moondcr0_end) - 90) / 420
 	: > gen/moondcrf.inc
 	for f in infinite_loop read_sectors; do \
@@ -142,7 +142,7 @@ obj/moondcr1.elf: src/moondcr1.asm src/macro.inc gen/moondcr0.inc
 obj/moondcrg.elf: src/moondcr1.asm src/macro.inc gen/moondcrf.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p obj
-	nasm src/moondcr1.asm -DENABLE_CHS -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcrg.elf
+	nasm src/moondcr1.asm -DENABLE_CHS -DENABLE_DIVISION_ERROR -DDEBUG_ELF -f elf -g -F dwarf -o obj/moondcrg.elf
 
 bin/moondcr1.bin: src/moondcr1.asm src/macro.inc gen/moondcr0.inc
 	@printf $(BEGIN)$@$(END)
@@ -152,7 +152,7 @@ bin/moondcr1.bin: src/moondcr1.asm src/macro.inc gen/moondcr0.inc
 bin/moondcrg.bin: src/moondcr1.asm src/macro.inc gen/moondcrf.inc
 	@printf $(BEGIN)$@$(END)
 	mkdir -p bin
-	nasm src/moondcr1.asm -DENABLE_CHS -f bin -o bin/moondcrg.bin
+	nasm src/moondcr1.asm -DENABLE_CHS -DENABLE_DIVISION_ERROR -f bin -o bin/moondcrg.bin
 
 #########
 # Extra #

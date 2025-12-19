@@ -55,16 +55,24 @@ mov sp, DATA_BASE+DATA_SIZE
 push dx     ; Save dx at [DATA_BASE+DATA_SIZE-2]
 cld
 
+%ifdef ENABLE_DIVISION_ERROR
+   xor di, di
+   xor ax, ax
+   stosw
+   mov ax, division_failure
+   stosw
+%endif
+
 ;###################
 ;# Read MBR sector #
 ;###################
 
 %ifdef ENABLE_MBR
-xor ax, ax
-xor dx, dx
-mov si, MBR_BASE
-inc cl                  ; mov cx, 1 (optimized)
-call read_sectors       ; Must re-read the first sector in order to be loadable by GRUB chainloader
+   xor ax, ax
+   xor dx, dx
+   mov si, MBR_BASE
+   inc cx                  ; mov cx, 1 (optimized)
+   call read_sectors       ; Must re-read the first sector in order to be loadable by GRUB chainloader
 %endif
 
 ;#########################
@@ -72,21 +80,21 @@ call read_sectors       ; Must re-read the first sector in order to be loadable 
 ;#########################
 
 %ifdef ENABLE_MBR
-mov bp, MBR_BASE+446-16 ; 446 = first partition's attribute (minus 16 because added by add)
-mov cl, 4
-active_partition_loop:
-   add bp, 16
-   mov al, [bp]
-   not al
-   test al, 0x80
-   stc
-   mov al, 'A'
-   call print_success_failure
-   loopne active_partition_loop
-jnz infinite_loop
+   mov bp, MBR_BASE+446-16 ; 446 = first partition's attribute (minus 16 because added by add)
+   mov cl, 4
+   active_partition_loop:
+      add bp, 16
+      mov al, [bp]
+      not al
+      test al, 0x80
+      stc
+      mov al, 'A'
+      call print_success_failure
+      loopne active_partition_loop
+   jnz infinite_loop
 %else
-xor bp, bp
-dec bp
+   xor bp, bp
+   dec bp
 %endif
 
 ;#####################
@@ -393,6 +401,20 @@ multiply:
 ;# String functions #
 ;####################
 
+%ifdef ENABLE_DIVISION_ERROR
+; Exception #0 handler
+division_failure:
+   mov bx, sp
+   mov word [bx+6], print_division_failure
+   iret
+
+; Prints 'd' for failing division
+print_division_failure:
+   mov al, 'D'-1
+   inc al            ; ZF = 0, CF = 0
+   ;ret
+%endif
+
 ; Reads count sectors starting with sector start_sc_high:start_sc_low and places them to destination
 ; Footprint: ax, bx
 ; print_success_failure(uint8_t message, bool success, bool continue_on_failure)
@@ -418,10 +440,10 @@ print_success_failure:
 ;#################
 
 %ifdef MBR_BINARY
-string_moondcr:   db 'MOONDCR1BIN', 0x20
+   string_moondcr:db 'MOONDCR1BIN', 0x20
 %endif
 %ifdef FAT32_BINARY
-string_moondcr:   db 'MOONDCRGBIN', 0x20
+   string_moondcr:db 'MOONDCRGBIN', 0x20
 %endif
 string_fat32:     db 'FAT32   '
 
