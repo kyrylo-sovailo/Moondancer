@@ -301,11 +301,11 @@ read_sectors:
 
 %ifdef ENABLE_CHS
 read_sectors:
-   push cx     ; stack 1
-   push si     ; stack 2
-   push cx     ; stack 3
-   push dx     ; stack 4
-   push ax     ; stack 5
+   push cx        ; stack 1
+   push si        ; stack 2
+   push cx        ; stack 3
+   push dx        ; stack 4
+   push ax        ; stack 5
 
    ; Get disk parameters
    mov ah, 0x08
@@ -314,37 +314,39 @@ read_sectors:
    mov si, dx
    xor di, di
    int 0x13
-   adc bh, 0   ; ZF = !CF = !error = success, CF = 0
+   adc bh, 0      ; ZF = !CF = !error = success, CF = 0
    jnz read_sectors_early_exit
 
    ; First divide
+   and cx, 0x003F ; cx = number_of_sectors
+   inc dh         ; dh = number_of_heads
    mov bl, dh
-   pop ax      ; stack 5
-   pop dx      ; stack 4
-   and cx, 0x003F
-   div cx      ; ax = address / number_of_sectors, dx = address % number_of_sectors (aka sector - 1), PRECISION IS LOST
-   inc dx
+   pop ax         ; stack 5
+   pop dx         ; stack 4
+   div cx         ; ax = address / number_of_sectors, dx = address % number_of_sectors (aka sector - 1), PRECISION IS LOST (18 bits -> 16 bits)
+   inc dx         ; dx = sector
    
    ; Second divide
-   div bl      ; al = (address / number_of_sectors) / number_of_heads (aka cylinder), ah = (address / number_of_sectors) % number_of_heads (aka head)
+   div bl         ; al = (address / number_of_sectors) / number_of_heads (aka cylinder), ah = (address / number_of_sectors) % number_of_heads (aka head)
 
-   ;Read disk
-   mov cl, dl  ; PRECISION IS LOST
+   ; Read disk
+   mov cl, dl     ; PRECISION IS LOST (16 bits -> 8 bits)
    mov ch, al
    mov dx, si
    mov dh, ah
-   pop ax      ; stack 3
+   pop ax         ; stack 3
    mov ah, 0x02
    xor bx, bx
    mov es, bx
-   pop bx      ; stack 2
+   pop bx         ; stack 2
    int 0x13
 
-   adc bl, 0   ; ZF = !CF = !error = success, CF = 0 (assuming destination ends with 0x00)
+   ; Error handling
+   adc bl, 0      ; ZF = !CF = !error = success, CF = 0 (assuming destination ends with 0x00)
    read_sectors_early_exit:
    mov al, 'R'
    call print_success_failure
-   pop cx      ; stack 1
+   pop cx         ; stack 1
    ret
 %endif
 
@@ -415,7 +417,12 @@ print_success_failure:
 ;# Text messages #
 ;#################
 
+%ifdef MBR_BINARY
 string_moondcr:   db 'MOONDCR1BIN', 0x20
+%endif
+%ifdef FAT32_BINARY
+string_moondcr:   db 'MOONDCRGBIN', 0x20
+%endif
 string_fat32:     db 'FAT32   '
 
 ;###########
