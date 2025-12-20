@@ -4,6 +4,7 @@
 
 ; On optimization:
 ; ch is zero everywhere, at no point the program multiplies by numbers larger than 256 or does more than 256 repetitions
+; ch is set to zero during the first disk read, be it MBR read (ENABLE_MBR) or FAT read (!ENABLE_MBR)
 
 ; On BIOS assumptions:
 ; int 0x13, ah 0x42: affects ah, assumed change flags
@@ -47,39 +48,31 @@
 
 jmp MOONDCR0_SEGMENT:start
 start:
-xor cx, cx
-mov ds, cx
-mov es, cx  ; Needed for cmps and few mov's
-mov ss, cx
+xor ax, ax
+mov ds, ax
+mov es, ax  ; Needed for cmps and few mov's
+mov ss, ax
 mov sp, DATA_BASE+DATA_SIZE
 push dx     ; Save dx at [DATA_BASE+DATA_SIZE-2]
 cld
 
 %ifdef ENABLE_DIVISION_ERROR
    xor di, di
-   xor ax, ax
    stosw
-   mov ax, division_failure
-   stosw
+   mov [di], division_failure
 %endif
 
-;###################
-;# Read MBR sector #
-;###################
-
+;#####################
+;# Read FAT32 sector #
+;#####################
 %ifdef ENABLE_MBR
-   xor ax, ax
+   ; Read MBR sector
    xor dx, dx
    mov si, MBR_BASE
-   inc cx                  ; mov cx, 1 (optimized)
+   mov cx, 1
    call read_sectors       ; Must re-read the first sector in order to be loadable by GRUB chainloader
-%endif
 
-;#########################
-;# Find active partition #
-;#########################
-
-%ifdef ENABLE_MBR
+   ; Find active partition
    mov bp, MBR_BASE+446-16 ; 446 = first partition's attribute (minus 16 because added by add)
    mov cl, 4
    active_partition_loop:
@@ -92,25 +85,24 @@ cld
       call print_success_failure
       loopne active_partition_loop
    jnz infinite_loop
-%else
-   xor bp, bp
-   dec bp
-%endif
 
-;#####################
-;# Read FAT32 header #
-;#####################
-
-%ifdef ENABLE_MBR
+   ; Read FAT32 sector
    mov ax, [bp+8]       ; 8   = active partition's starting sector, low
    mov dx, [bp+8+2]     ; 8+2 = active partition's starting sector, high
+   mov si, BPB_BASE
+   mov cl, 1            ; mov cx, 1 (optimized)
+   call read_sectors
 %else
-   xor ax, ax
+   ; Set bp to predefined state instead of searching for partition
+   xor bp, bp
+
+   ; Read FAT32 sector
+                        ; xor ax, ax (optimized)
    xor dx, dx
+   mov si, BPB_BASE
+   mov cx, 1
+   call read_sectors
 %endif
-mov si, BPB_BASE
-mov cl, 1               ; mov cx, 1 (optimized)
-call read_sectors
 
 mov di, string_fat32
 mov si, BPB_BASE+82     ; 82 = address of the "FAT32   " signature
@@ -192,10 +184,11 @@ read_file_loop:
       ; Check if read target file
       %ifdef ENABLE_MBR
          test byte [bp], 0x80
+         jz FILE_BASE        ; Leap of faith
       %else
          or bp, bp
+         jnz FILE_BASE       ; Leap of faith
       %endif
-      jz FILE_BASE            ; Leap of faith
 
       ; Loop 3: Iterate over FAT records in a physical sector
       mov dx, FILE_BASE+0     ; 0 = file name (minus 32 because added by add)
