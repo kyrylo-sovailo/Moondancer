@@ -25,6 +25,38 @@ die() {
     exit 1
 }
 
+copy_to_mbr() {
+    test -n "$1" || die "Force flash flag not provided"
+    test -f "$2" || die "File does not exist"
+    test -f "$3" || die "File does not exist"
+    test -n "$4" || die "Destination not provided"
+    test -z "$5" || die "Too many arguments"
+    FORCE=$1
+    CONTAINER="$2"
+    FILE="$3"
+    DESTINATION="$4"
+
+    if [ $FORCE -ne 0 ] || [ "$FILE" -nt "$CONTAINER" ]; then
+        mcopy -i "$CONTAINER"@@$FAT32_OFFSET_BT "$FILE" ::"$DESTINATION" -o || die "mcopy failed"
+    fi
+}
+
+copy_to_fat32() {
+    test -n "$1" || die "Force flag not provided"
+    test -f "$2" || die "File does not exist"
+    test -f "$3" || die "File does not exist"
+    test -n "$4" || die "Destination not provided"
+    test -z "$5" || die "Too many arguments"
+    FORCE=$1
+    CONTAINER="$2"
+    FILE="$3"
+    DESTINATION="$4"
+
+    if [ $FORCE -ne 0 ] || [ "$FILE" -nt "$CONTAINER" ]; then
+        mcopy -i "$CONTAINER" "$FILE" ::"$DESTINATION" -o || die "mcopy failed"
+    fi
+}
+
 # Create MBR image with one FAT32 partition
 if [ "$1" = "create_mbr" ]; then
     test -n "$2" || die "File not provided"
@@ -32,6 +64,7 @@ if [ "$1" = "create_mbr" ]; then
     CONTAINER="$2"
     
     trap 'rm -f "$CONTAINER"' EXIT
+    FORCE=0
     if [ ! -f "$CONTAINER" ]; then
         dd if=/dev/zero bs=$SECTOR_SIZE_BT count=$MBR_SIZE_SC of="$CONTAINER" || die "dd failed"
         REAL_INFO=$(fdisk "$CONTAINER" < src/mbr.fdisk | tr -d '*' | grep -o -E '.img1[[:space:]]+[0-9]+[[:space:]]+[0-9]+[[:space:]]+[0-9]+' | xargs) || exit 1
@@ -50,16 +83,26 @@ if [ "$1" = "create_mbr" ]; then
         REAL_FAT32_SECTOR_SIZE_BT=$(expr 256 \* $REAL_FAT32_SECTOR_SIZE_BT_HIGH + $REAL_FAT32_SECTOR_SIZE_BT_LOW)
         echo REAL_FAT32_SECTOR_SIZE_BT=$REAL_FAT32_SECTOR_SIZE_BT
         test "$REAL_FAT32_SECTOR_SIZE_BT" = "$FAT32_SECTOR_SIZE_BT" || die "real partition's sector size does not match expected size"
+
+        FORCE=1
     fi
 
-    #if [ bin/moondcr0.bin -nt "$CONTAINER" ]; then
+    if [ $FORCE -ne 0 ] || [ bin/moondcr0.bin -nt "$CONTAINER" ]; then
         dd if=bin/moondcr0.bin bs=1 count=446 conv=notrunc of="$CONTAINER" || die "flashing moondcr0.bin failed"
-    #fi
-    #if [ bin/notbootf.bin -nt "$CONTAINER" ]; then
+    fi
+    if [ $FORCE -ne 0 ] || [ bin/notbootf.bin -nt "$CONTAINER" ]; then
         FAT32_OFFSET_BT_90=$(expr $FAT32_OFFSET_BT + 90)
         dd if=bin/notbootf.bin bs=1 seek=$FAT32_OFFSET_BT count=3 conv=notrunc of="$CONTAINER" || die "flashing notbootf.bin failed"
         dd if=bin/notbootf.bin bs=1 skip=90 seek=$FAT32_OFFSET_BT_90 count=420 conv=notrunc of="$CONTAINER" || die "flashing notbootf.bin failed"
-    #fi
+    fi
+
+	copy_to_mbr $FORCE "$CONTAINER" bin/notboot0.bin notboot0.bin
+	copy_to_mbr $FORCE "$CONTAINER" bin/moondcr0.bin moondcr0.bin
+	copy_to_mbr $FORCE "$CONTAINER" bin/moondcr1.bin moondcr1.bin
+	copy_to_mbr $FORCE "$CONTAINER" bin/notbootf.bin notbootf.bin
+	copy_to_mbr $FORCE "$CONTAINER" bin/moondcrf.bin moondcrf.bin
+	copy_to_mbr $FORCE "$CONTAINER" bin/moondcrg.bin moondcrg.bin
+
     trap - EXIT
 
 # Create FAT32 image
@@ -69,6 +112,7 @@ elif [ "$1" = "create_fat32" ]; then
     CONTAINER="$2"
     
     trap 'rm -f "$CONTAINER"' EXIT
+    FORCE=0
     if [ ! -f "$CONTAINER" ]; then
         dd if=/dev/zero bs=$SECTOR_SIZE_BT count=$FAT32_SIZE_SC of="$CONTAINER" || die "dd failed"
 
@@ -79,45 +123,23 @@ elif [ "$1" = "create_fat32" ]; then
         REAL_FAT32_SECTOR_SIZE_BT=$(expr 256 \* $REAL_FAT32_SECTOR_SIZE_BT_HIGH + $REAL_FAT32_SECTOR_SIZE_BT_LOW)
         echo REAL_FAT32_SECTOR_SIZE_BT=$REAL_FAT32_SECTOR_SIZE_BT
         test "$REAL_FAT32_SECTOR_SIZE_BT" = "$FAT32_SECTOR_SIZE_BT" || die "real partition's sector size does not match expected size"
+
+        FORCE=1
     fi
 
-    #if [ bin/notbootf.bin -nt "$CONTAINER" ]; then
+    if [ $FORCE -ne 0 ] || [ bin/notbootf.bin -nt "$CONTAINER" ]; then
         dd if=bin/moondcrf.bin bs=1 count=3 conv=notrunc of="$CONTAINER" || die "flashing moondcrf.bin failed"
         dd if=bin/moondcrf.bin bs=1 skip=90 seek=90 count=420 conv=notrunc of="$CONTAINER" || die "flashing moondcrf.bin failed"
-    #fi
+    fi
+
+	copy_to_fat32 $FORCE "$CONTAINER" bin/notboot0.bin notboot0.bin
+	copy_to_fat32 $FORCE "$CONTAINER" bin/moondcr0.bin moondcr0.bin
+	copy_to_fat32 $FORCE "$CONTAINER" bin/moondcr1.bin moondcr1.bin
+	copy_to_fat32 $FORCE "$CONTAINER" bin/notbootf.bin notbootf.bin
+	copy_to_fat32 $FORCE "$CONTAINER" bin/moondcrf.bin moondcrf.bin
+	copy_to_fat32 $FORCE "$CONTAINER" bin/moondcrg.bin moondcrg.bin
+
     trap - EXIT
-
-# Copy a file into the FAT32 partition of the MBR image
-elif [ "$1" = "copy_to_mbr" ]; then
-    test -f "$2" || die "File does not exist"
-    test -f "$3" || die "File does not exist"
-    test -n "$4" || die "Destination not provided"
-    test -z "$5" || die "Too many arguments"
-    CONTAINER="$2"
-    FILE="$3"
-    DESTINATION="$4"
-
-    #if [ "$FILE" -nt "$CONTAINER" ]; then
-        trap 'rm -f "$CONTAINER"' EXIT
-        mcopy -i "$CONTAINER"@@$FAT32_OFFSET_BT "$FILE" ::"$DESTINATION" -o || die "mcopy failed"
-        trap - EXIT
-    #fi
-
-# Copy a file into the FAT32 image
-elif [ "$1" = "copy_to_fat32" ]; then
-    test -f "$2" || die "File does not exist"
-    test -f "$3" || die "File does not exist"
-    test -n "$4" || die "Destination not provided"
-    test -z "$5" || die "Too many arguments"
-    CONTAINER="$2"
-    FILE="$3"
-    DESTINATION="$4"
-
-    #if [ "$FILE" -nt "$CONTAINER" ]; then
-        trap 'rm -f "$CONTAINER"' EXIT
-        mcopy -i "$CONTAINER" "$FILE" ::"$DESTINATION" -o || die "mcopy failed"
-        trap - EXIT
-    #fi
 
 # Get decimal label offset/address
 elif [ "$1" = "get_offset_dec" ]; then

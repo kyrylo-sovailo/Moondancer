@@ -58,24 +58,12 @@ img/mbr.img: bin/notboot0.bin bin/moondcr0.bin bin/moondcr1.bin bin/notbootf.bin
 	@printf $(BEGIN)$@$(END)
 	mkdir -p img
 	src/helper.sh create_mbr img/mbr.img
-	src/helper.sh copy_to_mbr img/mbr.img bin/notboot0.bin notboot0.bin
-	src/helper.sh copy_to_mbr img/mbr.img bin/moondcr0.bin moondcr0.bin
-	src/helper.sh copy_to_mbr img/mbr.img bin/moondcr1.bin moondcr1.bin
-	src/helper.sh copy_to_mbr img/mbr.img bin/notbootf.bin notbootf.bin
-	src/helper.sh copy_to_mbr img/mbr.img bin/moondcrf.bin moondcrf.bin
-	src/helper.sh copy_to_mbr img/mbr.img bin/moondcrg.bin moondcrg.bin
 
 # FAT32 image
 img/fat32.img: bin/notboot0.bin bin/moondcr0.bin bin/moondcr1.bin bin/notbootf.bin bin/moondcrf.bin bin/moondcrg.bin
 	@printf $(BEGIN)$@$(END)
 	mkdir -p img
 	src/helper.sh create_fat32 img/fat32.img
-	src/helper.sh copy_to_fat32 img/fat32.img bin/notboot0.bin notboot0.bin
-	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcr0.bin moondcr0.bin
-	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcr1.bin moondcr1.bin
-	src/helper.sh copy_to_fat32 img/fat32.img bin/notbootf.bin notbootf.bin
-	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcrf.bin moondcrf.bin
-	src/helper.sh copy_to_fat32 img/fat32.img bin/moondcrg.bin moondcrg.bin
 
 ############
 # Binaries #
