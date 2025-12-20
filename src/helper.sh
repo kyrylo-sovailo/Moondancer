@@ -52,14 +52,14 @@ if [ "$1" = "create_mbr" ]; then
         test "$REAL_FAT32_SECTOR_SIZE_BT" = "$FAT32_SECTOR_SIZE_BT" || die "real partition's sector size does not match expected size"
     fi
 
-    if [ bin/moondcr0.bin -nt "$CONTAINER" ]; then
+    #if [ bin/moondcr0.bin -nt "$CONTAINER" ]; then
         dd if=bin/moondcr0.bin bs=1 count=446 conv=notrunc of="$CONTAINER" || die "flashing moondcr0.bin failed"
-    fi
-    if [ bin/notbootf.bin -nt "$CONTAINER" ]; then
+    #fi
+    #if [ bin/notbootf.bin -nt "$CONTAINER" ]; then
         FAT32_OFFSET_BT_90=$(expr $FAT32_OFFSET_BT + 90)
         dd if=bin/notbootf.bin bs=1 seek=$FAT32_OFFSET_BT count=3 conv=notrunc of="$CONTAINER" || die "flashing notbootf.bin failed"
         dd if=bin/notbootf.bin bs=1 skip=90 seek=$FAT32_OFFSET_BT_90 count=420 conv=notrunc of="$CONTAINER" || die "flashing notbootf.bin failed"
-    fi
+    #fi
     trap - EXIT
 
 # Create FAT32 image
@@ -81,10 +81,10 @@ elif [ "$1" = "create_fat32" ]; then
         test "$REAL_FAT32_SECTOR_SIZE_BT" = "$FAT32_SECTOR_SIZE_BT" || die "real partition's sector size does not match expected size"
     fi
 
-    if [ bin/notbootf.bin -nt "$CONTAINER" ]; then
+    #if [ bin/notbootf.bin -nt "$CONTAINER" ]; then
         dd if=bin/moondcrf.bin bs=1 count=3 conv=notrunc of="$CONTAINER" || die "flashing moondcrf.bin failed"
         dd if=bin/moondcrf.bin bs=1 skip=90 seek=90 count=420 conv=notrunc of="$CONTAINER" || die "flashing moondcrf.bin failed"
-    fi
+    #fi
     trap - EXIT
 
 # Copy a file into the FAT32 partition of the MBR image
@@ -97,11 +97,11 @@ elif [ "$1" = "copy_to_mbr" ]; then
     FILE="$3"
     DESTINATION="$4"
 
-    if [ "$FILE" -nt "$CONTAINER" ]; then
+    #if [ "$FILE" -nt "$CONTAINER" ]; then
         trap 'rm -f "$CONTAINER"' EXIT
         mcopy -i "$CONTAINER"@@$FAT32_OFFSET_BT "$FILE" ::"$DESTINATION" -o || die "mcopy failed"
         trap - EXIT
-    fi
+    #fi
 
 # Copy a file into the FAT32 image
 elif [ "$1" = "copy_to_fat32" ]; then
@@ -113,11 +113,11 @@ elif [ "$1" = "copy_to_fat32" ]; then
     FILE="$3"
     DESTINATION="$4"
 
-    if [ "$FILE" -nt "$CONTAINER" ]; then
+    #if [ "$FILE" -nt "$CONTAINER" ]; then
         trap 'rm -f "$CONTAINER"' EXIT
         mcopy -i "$CONTAINER" "$FILE" ::"$DESTINATION" -o || die "mcopy failed"
         trap - EXIT
-    fi
+    #fi
 
 # Get decimal label offset/address
 elif [ "$1" = "get_offset_dec" ]; then

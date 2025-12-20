@@ -316,41 +316,51 @@ read_sectors:
    push ax        ; stack 5
 
    ; Get disk parameters
-   mov ah, 0x08
-   xor bh, bh
    mov dl, [DATA_BASE+DATA_SIZE-2]
-   mov si, dx
    xor di, di
+   mov si, dx     ; Store dl
+   xor bh, bh     ; Store 0 (to be used by "adc bh, 0")
+   mov ah, 0x08
    int 0x13
    adc bh, 0      ; ZF = !CF = !error = success, CF = 0
    jnz read_sectors_early_exit
+   xor ax, ax
+   mov es, ax
 
-   ; First divide
-   and cx, 0x003F ; cx = number_of_sectors
-   inc dh         ; dh = number_of_heads
-   mov bl, dh
+   ; Geometry multiply (8 bit * 8 bit -> 16 bit)
+   and cx, 0x003F ; cx = number_of_sectors (guaranteed to be less than 256)
+   mov bl, cl     ; Store cl
+   mov al, dh     ; ax = number_of_heads - 1 (guaranteed to be less than 256)
+   mul cl         ; ax = (number_of_heads - 1) * number_of_sectors
+   add cx, ax     ; cx = number_of_heads * number_of_sectors (one instruction less with mul+add and preserves dx)
+
+   ; First divide (32 bit -> 16 bit * 16 bit)
    pop ax         ; stack 5
    pop dx         ; stack 4
-   div cx         ; ax = address / number_of_sectors, dx = address % number_of_sectors (aka sector - 1), PRECISION IS LOST (18 bits -> 16 bits)
-   inc dx         ; dx = sector
-   
-   ; Second divide
-   div bl         ; al = (address / number_of_sectors) / number_of_heads (aka cylinder), ah = (address / number_of_sectors) % number_of_heads (aka head)
+   div cx         ; ax = address / (number_of_heads * number_of_sectors) = cylinder, dx = address % (number_of_heads * number_of_sectors) = number_of_sectors * head + sector
+   test ah, 0xFC
+   jnz print_division_failure
+   mov cx, ax     ; cx = cylinder
+   xchg cl, ch    ; cl = cylinder_high, ch = cylinder_low
+   ror cl, 1
+   ror cl, 1      ; cl = cylinder_high << 6
 
+   ; Second divide (16 bit -> 8 bit * 8 bit)
+   mov ax, dx     ; ax = number_of_sectors * head + sector
+   div bl         ; al = (number_of_sectors * head + sector) / number_of_sectors = head, ah = (number_of_sectors * head + sector) % number_of_sectors = sector
+   
    ; Read disk
-   mov cl, dl     ; PRECISION IS LOST (16 bits -> 8 bits)
-   mov ch, al
-   mov dx, si
-   mov dh, ah
+   mov dx, si     ; Restore dl
+   inc ah         ; ah = sector + 1
+   or cl, ah      ; cl = (cylinder_high << 6) | (sector + 1)
+   mov dh, al     ; dh = head
    pop ax         ; stack 3
-   mov ah, 0x02
-   xor bx, bx
-   mov es, bx
    pop bx         ; stack 2
+   mov ah, 0x02
    int 0x13
+   adc bl, 0      ; ZF = !CF = !error = success, CF = 0 (assuming destination bx ends with 0x00)
 
    ; Error handling
-   adc bl, 0      ; ZF = !CF = !error = success, CF = 0 (assuming destination ends with 0x00)
    read_sectors_early_exit:
    mov al, 'R'
    call print_success_failure
