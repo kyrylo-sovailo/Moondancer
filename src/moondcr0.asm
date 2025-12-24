@@ -24,13 +24,12 @@
 
 [cpu 8086]
 [bits 16]
-%include "src/macro.inc"
-%include "src/moondcr0.inc"
+%include "src/common.inc"
 %ifdef DEBUG_ELF
-   times CODE_BASE nop
-   MANUAL_OFFSET equ CODE_BASE
+   times STAGE0_BASE nop
+   MANUAL_OFFSET equ STAGE0_BASE
 %else
-   [org CODE_BASE]
+   [org STAGE0_BASE]
    MANUAL_OFFSET equ 0
 %endif
 %ifdef FLAT_BINARY
@@ -46,20 +45,20 @@
    fat32_start:
 %endif
 
-jmp MOONDCR0_SEGMENT:start
+jmp 0:start
 start:
 xor ax, ax
 mov ds, ax
 mov es, ax  ; Needed for cmps and few mov's
 mov ss, ax
-mov sp, DATA_BASE+DATA_SIZE
-push dx     ; Save dx at [DATA_BASE+DATA_SIZE-2]
+mov sp, DATA_STACK_BASE+DATA_STACK_SIZE
+push dx     ; Save dx at [DATA_STACK_BASE+DATA_STACK_SIZE-2]
 cld
 
 %ifdef ENABLE_DIVISION_ERROR
    xor di, di
    stosw
-   mov [di], division_failure
+   mov word [di], division_failure
 %endif
 
 ;#####################
@@ -77,7 +76,7 @@ cld
    mov cl, 4
    active_partition_loop:
       add bp, 16
-      mov al, [bp]
+      mov al, byte [bp]
       not al
       test al, 0x80
       stc
@@ -87,8 +86,8 @@ cld
    jnz infinite_loop
 
    ; Read FAT32 sector
-   mov ax, [bp+8]       ; 8   = active partition's starting sector, low
-   mov dx, [bp+8+2]     ; 8+2 = active partition's starting sector, high
+   mov ax, word [bp+8]  ; 8   = active partition's starting sector, low
+   mov dx, word [bp+8+2]; 8+2 = active partition's starting sector, high
    mov si, BPB_BASE
    mov cl, 1            ; mov cx, 1 (optimized)
    call read_sectors
@@ -119,7 +118,7 @@ call print_success_failure
 ; Loop1: Iterate over cluster chains
 mov si, BPB_BASE+44
 lodsw                         ; 44   = root cluster, low
-mov dx, [si]                  ; 44+2 = root cluster, high (minus 2 because added by lodsw)
+mov dx, word [si]             ; 44+2 = root cluster, high (minus 2 because added by lodsw)
 read_file_loop:
    xor cx, cx
    mov bx, 0x0FFF
@@ -143,7 +142,7 @@ read_file_loop:
 
    ; dx:ax = (file_ct-2) * cluster_size_lsc
                               ; xor ch, ch (optimized)
-   mov cl, [BPB_BASE+13]      ; 13 = cluster size in logical sectors
+   mov cl, byte [BPB_BASE+13] ; 13 = cluster size in logical sectors
    mov di, cx
    call multiply
    push dx ;stack 3
@@ -152,9 +151,9 @@ read_file_loop:
    ; dx:ax = ex_fat_size_lsc * fat_number
    mov si, BPB_BASE+36
    lodsw                      ; 36   = extended FAT size, low
-   mov dx, [si]               ; 36+2 = extended FAT size, high (minus 2 because added by lodsw)
+   mov dx, word [si]          ; 36+2 = extended FAT size, high (minus 2 because added by lodsw)
                               ; xor ch, ch (optimized)
-   mov cl, [si-22]            ; 16 = number of FAT tables, -22 = 16-(36+2)
+   mov cl, byte [si-22]       ; 16 = number of FAT tables, -22 = 16-(36+2)
    call multiply
 
    ; dx:ax = ex_fat_size_lsc * fat_number + (file_ct - 2) * cluster_size_lsc
@@ -170,28 +169,28 @@ read_file_loop:
    ; ax = logical_sector_size_sc * cluster_size_lsc (both numbers are guaranteed to be less than 256)
    xchg ax, di                ; cluster size to ax, low sector number to di
    mul cl                     ; cx is left over add_multiply_add
-   mov cx, ax
+   mov cx, ax                 ; ATTENTION: ch may be non-zero
    mov ax, di                 ; low sector number to ax
    read_file_segment_loop:
       ; Read sector dx:ax
       push dx ;stack 3
       push ax ;stack 4
       push cx ;stack 5
-      mov si, FILE_BASE
-      mov cl, 1               ; mov cx, 1 (optimized)
+      mov si, STAGE1_BASE
+      mov cx, 1
       call read_sectors
 
-      ; Check if read target file
+      ; Check if read directory or target file
       %ifdef ENABLE_MBR
          test byte [bp], 0x80
-         jz FILE_BASE        ; Leap of faith
+         jz STAGE1_BASE       ; Leap of faith
       %else
          or bp, bp
-         jnz FILE_BASE       ; Leap of faith
+         jnz STAGE1_BASE      ; Leap of faith
       %endif
 
       ; Loop 3: Iterate over FAT records in a physical sector
-      mov dx, FILE_BASE+0     ; 0 = file name (minus 32 because added by add)
+      mov dx, STAGE1_BASE+0   ; 0 = file name
       read_file_list_loop:
          mov si, dx
          mov di, string_moondcr
@@ -202,7 +201,7 @@ read_file_loop:
          call print_success_failure
          jz read_file_list_loop_success
          add dx, 32
-         cmp dh, (FILE_BASE+512) >> 8
+         cmp dh, (STAGE1_BASE+512) >> 8
          jb read_file_list_loop
 
       ; moondcr1.bin not found, go to next physical sector
@@ -239,15 +238,15 @@ read_file_loop:
    adc dx, di
    
    ; Read sector dx:ax
-   mov si, FILE_BASE
+   mov si, FAT_BASE
    mov cl, 1                  ; mov cx, 1 (optimized)
    call read_sectors
 
    ; dx:ax = file_ct
    pop bx ;stack 1
-   add bx, FILE_BASE
-   mov ax, [bx]
-   mov dx, [bx+2]
+   add bx, FAT_BASE
+   mov ax, word [bx]
+   mov dx, word [bx+2]
    jmp read_file_loop
 
 ; moondcr1.bin found, go to next cluster
@@ -259,8 +258,8 @@ add sp, 10 ;stack 5, stack 4, stack 3, stack 2, stack 1
 %else
    not bp
 %endif
-mov ax, [si-12+26]      ; 26 = address of file cluster, low (minus 12 because si = dx + 12 if repe cmpsb succeeds)
-mov dx, [si-12+20]      ; 20 = address of file cluster, high (minus 12 because si = dx + 12 if repe cmpsb succeeds)
+mov ax, word [si-12+26] ; 26 = address of file cluster, low (minus 12 because si = dx + 12 if repe cmpsb succeeds)
+mov dx, word [si-12+20] ; 20 = address of file cluster, high (minus 12 because si = dx + 12 if repe cmpsb succeeds)
 jmp read_file_loop
 
 ;###################
@@ -270,7 +269,7 @@ jmp read_file_loop
 ; Reads count sectors starting with sector start_sc_high:start_sc_low and places them to destination
 ; Footprint: ax, bx, dl, si, di
 ; read_sectors(uint16_t start_sc_high, uint16_t start_sc_low, void *destination, uint16_t count)
-; read_sectors(dx, ax, si, cx)
+; read_sectors(dx, ax, es:si, cx)
 %ifdef ENABLE_LBA
 read_sectors:
    ; Start (8 bytes)
@@ -280,9 +279,9 @@ read_sectors:
    push dx
    push ax
    ; Destination (4 bytes)
-   push ss
+   push es
    push si
-   ; count (2 bytes)
+   ; Count (2 bytes)
    push cx
    ; Signature (2 bytes)
    mov bl, 16
@@ -290,8 +289,8 @@ read_sectors:
    
    ; Call
    mov ah, 0x42
-   mov dl, [DATA_BASE+DATA_SIZE-2]
-   mov si, sp
+   mov dl, byte [DATA_STACK_BASE+DATA_STACK_SIZE-2]
+   mov si, sp        ; Assumes ds == ss
    int 0x13
    adc bh, 0         ; ZF = !CF = !error = success, CF = 0
    mov al, 'R'
@@ -309,20 +308,21 @@ read_sectors:
    push ax        ; stack 5
 
    ; Get disk parameters
-   mov dl, [DATA_BASE+DATA_SIZE-2]
+   mov dl, byte [DATA_STACK_BASE+DATA_STACK_SIZE-2]
    xor di, di
    mov si, dx     ; Store dl
    xor bh, bh     ; Store 0 (to be used by "adc bh, 0")
    mov ah, 0x08
+   push es        ; stack 6
    int 0x13
+   pop es         ; stack 6
    adc bh, 0      ; ZF = !CF = !error = success, CF = 0
    jnz read_sectors_early_exit
-   xor ax, ax
-   mov es, ax
 
    ; Geometry multiply (8 bit * 8 bit -> 16 bit)
    and cx, 0x003F ; cx = number_of_sectors (guaranteed to be less than 256)
    mov bl, cl     ; Store cl
+                  ; xor ah, ah (optimized, BIOS returns ah == 0)
    mov al, dh     ; ax = number_of_heads - 1 (guaranteed to be less than 256)
    mul cl         ; ax = (number_of_heads - 1) * number_of_sectors
    add cx, ax     ; cx = number_of_heads * number_of_sectors (one instruction less with mul+add and preserves dx)
@@ -370,19 +370,19 @@ read_sectors:
 ; add_multiply_add(uint16_t high, uint16_t low) -> uint16_t high, uint16_t low, uint8_t logical_sector_size_sc
 ; add_multiply_add(dx, ax) -> dx, ax, cl
 add_multiply_add:
-   add ax, [BPB_BASE+14]   ; 14 = number of reserved logical sectors
+   add ax, word [BPB_BASE+14] ; 14 = number of reserved logical sectors
    adc dx, 0
    
-   mov bx, [BPB_BASE+11]   ; 11 = size of logical sector
-   mov cl, 9               ; 9 = log2(512)
+   mov bx, word [BPB_BASE+11] ; 11 = size of logical sector
+   mov cl, 9                  ; 9 = log2(512)
    shr bx, cl
    mov cx, bx
 
    call multiply
 
    %ifdef ENABLE_MBR
-      add ax, [bp+8]       ; 8   = active partition's starting sector, low
-      adc dx, [bp+8+2]     ; 8+2 = active partition's starting sector, high
+      add ax, word [bp+8]     ; 8   = active partition's starting sector, low
+      adc dx, word [bp+8+2]   ; 8+2 = active partition's starting sector, high
    %endif
    ret
 
@@ -408,7 +408,7 @@ multiply:
 ; Exception #0 handler
 division_failure:
    mov bx, sp
-   mov word [bx+6], print_division_failure
+   mov word [ss:bx+6], print_division_failure ; Override because may be called from read_sector with es != ss (and can spare one byte since only 8 bits are changed)
    iret
 
 ; Prints 'd' for failing division

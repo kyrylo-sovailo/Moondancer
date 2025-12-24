@@ -102,6 +102,7 @@ if [ "$1" = "create_mbr" ]; then
 	copy_to_mbr $FORCE "$CONTAINER" bin/notbootf.bin notbootf.bin
 	copy_to_mbr $FORCE "$CONTAINER" bin/moondcrf.bin moondcrf.bin
 	copy_to_mbr $FORCE "$CONTAINER" bin/moondcrg.bin moondcrg.bin
+    copy_to_mbr $FORCE "$CONTAINER" bin/moondcr2.bin moondcr2.bin
 
     trap - EXIT
 
@@ -138,6 +139,7 @@ elif [ "$1" = "create_fat32" ]; then
 	copy_to_fat32 $FORCE "$CONTAINER" bin/notbootf.bin notbootf.bin
 	copy_to_fat32 $FORCE "$CONTAINER" bin/moondcrf.bin moondcrf.bin
 	copy_to_fat32 $FORCE "$CONTAINER" bin/moondcrg.bin moondcrg.bin
+    copy_to_fat32 $FORCE "$CONTAINER" bin/moondcr2.bin moondcr2.bin
 
     trap - EXIT
 

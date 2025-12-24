@@ -4,12 +4,12 @@
 
 [cpu 8086]
 [bits 16]
-%include "src/macro.inc"
+%include "src/common.inc"
 %ifdef DEBUG_ELF
-   times 0x07C0 nop
-   MANUAL_OFFSET equ FILE_BASE
+   times STAGE0_BASE nop
+   MANUAL_OFFSET equ STAGE0_BASE
 %else
-   [org 0x07C0]
+   [org STAGE0_BASE]
    MANUAL_OFFSET equ 0
 %endif
 %ifdef FLAT_BINARY
@@ -29,7 +29,7 @@
 ;# Greeting message #
 ;####################
 
-jmp 0x0000:start
+jmp 0:start
 start:
 xor bx, bx
 mov ds, bx
