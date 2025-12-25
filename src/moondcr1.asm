@@ -134,11 +134,40 @@ read_file_loop:
    
    ; Read cluster dx:ax (cx segments) to es:si
    push cx ;stack 3
-   mov si, STAGE2_BASE
    push es ;stack 4
    mov bx, word [DATA_STACK_BASE+DATA_STACK_SIZE-6]
-   mov es, bx
-   call read_sectors ; TODO: may fail for floppies if cx > 255
+   mov es, bx   
+   %ifdef ENABLE_LBA
+      mov si, STAGE2_BASE
+      call read_sectors
+   %endif
+   %ifdef ENABLE_CHS
+      read_cluster_loop:
+         mov bx, 128          ; bx = 128
+         push dx ;stack 5
+         push ax ;stack 6
+         push cx ;stack 7
+         push bx ;stack 8
+         
+         cmp cx, bx
+         jb read_cluster_loop_do_not_cap
+            mov cx, bx
+         read_cluster_loop_do_not_cap:
+         mov si, STAGE2_BASE
+         call read_sectors
+
+         mov bx, es
+         add bx, 128*512/16
+         mov es, bx
+         pop bx ;stack 8
+         pop cx ;stack 7
+         pop ax ;stack 6
+         pop dx ;stack 5
+         add ax, bx
+         adc dx, 0
+         sub cx, bx
+         ja read_cluster_loop
+   %endif
    pop es ;stack 4
    pop cx ;stack 3
 
@@ -154,7 +183,7 @@ read_file_loop:
    read_file_file:
       ; Increment counters
       mov ax, 32              ; 32 = 512 / 16 (segment multiplier)
-      mul cx                  ; ax = segment_increment, dx = 0
+      mul cx                  ; ax = segment_increment, dx = 0 (needs 2Mb of memory to overflow)
       add word [DATA_STACK_BASE+DATA_STACK_SIZE-6], ax
       dec word [DATA_STACK_BASE+DATA_STACK_SIZE-8]
       mov dx, word [DATA_STACK_BASE+DATA_STACK_SIZE-2]
@@ -164,14 +193,14 @@ read_file_loop:
    read_file_directory:
       ; Loop 2: Iterate over FAT records in a cluster
       mov ax, 16              ; 16 = 512 / 32 (records per sector)
-      mul cx                  ; ax = number_of_records, dx = 0
+      mul cx                  ; ax = number_of_records, dx = 0 (needs 1Mb of memory to overflow)
       mov cx, ax
       mov dx, STAGE2_BASE+0   ; 0 = file name
       read_file_list_loop:
          push cx ;stack 3
          mov si, dx
          mov di, string_moondcr
-         mov cx, 12           ; mov cx, 12 (optimized)
+         mov cx, 12
          repe cmpsb
          stc
          mov al, 'M'
@@ -193,7 +222,7 @@ read_file_loop:
    shl bx, 1
    xor bh, bh
    shl bx, 1
-   mov cl, 7                  ; mov cx, 7 (optimized)
+   mov cx, 7
    read_file_loop_advance_cluster_loop:
       shr di, 1
       rcr si, 1

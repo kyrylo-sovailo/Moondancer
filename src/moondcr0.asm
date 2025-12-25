@@ -15,8 +15,9 @@
 ; A - check active partition
 ; R - read disk
 ; F - check FAT32 signature
-; M - check if the file is MOONDCR1.BIN
+; M - check if the filename matches the target
 ; C - check if next cluster is valid
+; E - check if enough memory
 
 ;#########
 ;# Setup #
